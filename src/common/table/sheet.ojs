@@ -1,0 +1,13 @@
+root = html`<div id="container"><canvas></canvas></div>`
+
+container = document.querySelector('#container')
+
+observer = new ResizeObserver()
+
+
+
+canvas = document.querySelector('canvas')
+
+ctx = canvas.getContext("2d")
+
+ctx.fillRect(0, 0, 50, 50)

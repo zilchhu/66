@@ -1,0 +1,21 @@
+Input:
+  rows: [Row]
+
+Sheet:
+  width: number
+  height: number
+  colWidth: number
+  rowHeight: number
+  cols: [Col]
+  rows: [Row]
+
+Col:
+  width: number
+
+Row:
+  height: number
+  cells: [Cell]
+
+Cell:
+  type: string
+  content: any
