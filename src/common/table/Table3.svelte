@@ -1,5 +1,6 @@
 <script>
   import { onMount, onDestroy } from "svelte"
+  import Color from "../color/color.js"
   // props
   let rows = []
 
@@ -29,7 +30,7 @@
     canvasHeight = 0
 
   let scrollHeight = 50,
-      scrollWidth = 50,
+    scrollWidth = 50,
     scrollVRange = 0,
     scrollHRange = 0,
     scrollTop = 0,
@@ -53,10 +54,14 @@
   // sheet part
   $: sheetRows = rows.map(row => ({ ...row, height: row.height ?? sheetDefaultRowHeight }))
   $: sheetHeight = sum(sheetRows.map(row => row.height))
+  $: sheetFixedRows = sheetRows.filter(row => row.fixed)
+  $: sheetFixedHeight = sum(sheetFixedRows.map(row => row.height))
 
   $: sheetColsNum = Math.max(...sheetRows.map(row => row.cells?.length ?? 0))
   $: sheetCols = Array.from(Array(sheetColsNum).keys()).map(_ => ({ width: sheetDefaultColWidth }))
   $: sheetWidth = sum(sheetCols.map(col => col.width))
+  $: sheetFixedCols = sheetCols.filter(col => col.fixed)
+  $: sheetFixedWidth = sum(sheetFixedCols.map(col => col.width))
 
   // canvas part
   $: canvasHeight = containerHeight * 2
@@ -173,9 +178,10 @@
         cells: Array.from(Array(colNum).keys()).map(j => {
           return {
             type: "text",
-            content: `Row${i}-Col${j}`,
+            content: j == 2 ? `行r${i}-列c${j}`: `Row${i}-Col${j}`,
           }
         }),
+        fixed: i == 0 ? true : false,
       }
     })
   }
@@ -253,21 +259,23 @@
     function drawTextCell([x, y, w, h], text, { font, baseline } = {}) {
       // console.log(text)
       clipRect([x, y, w, h])
-      ctx.textBaseline = baseline ?? "top"
+      ctx.textBaseline = baseline ?? "middle" // top, middle
       ctx.font = font ?? "24px 微软雅黑"
-      ctx.fillText(text, x, y)
+      if (ctx.textBaseline == "top") ctx.fillText(text, x, y)
+      else if (ctx.textBaseline == "middle") ctx.fillText(text, x, y + h / 2)
       ctx.restore()
     }
 
-    function drawCells() {
-      // const {
-      //   sheetStartRowIdx,
-      //   sheetStartRowOffsetDis,
-      //   sheetEndRowIdx,
-      //   sheetStartColIdx,
-      //   sheetStartColOffsetDis,
-      //   sheetEndColIdx,
-      // } = sheet
+    function drawHorizontalBorder([x1, y1, x2, y2]) {
+      ctx.lineWidth = 1
+      ctx.strokeStyle = Color.gray300
+      ctx.beginPath()
+      ctx.moveTo(x1, y1)
+      ctx.lineTo(x2, y2)
+      ctx.stroke()
+    }
+
+    function drawNormalCells() {
       console.log(sheetStartRowIdx, sheetEndRowIdx, sheetStartColIdx, sheetEndColIdx)
 
       let y = -sheetStartRowOffsetDis
@@ -280,10 +288,33 @@
           let col = sheetCols[j]
           let w = col.width
           drawTextCell([x, y, w, h], cell.content)
+          drawHorizontalBorder([x, y, x + w, y])
           x += w
         }
         y += h
       }
+    }
+
+    function drawFixedRowsCells() {
+      ctx.clearRect(0, 0, canvasWidth, sheetFixedHeight)
+      let y = 0
+      for (let row of sheetFixedRows) {
+        let h = row.height
+        let x = -sheetStartColOffsetDis
+        for (let j = sheetStartColIdx; j <= sheetEndColIdx; j++) {
+          let cell = row.cells[j]
+          let col = sheetCols[j]
+          let w = col.width
+          drawTextCell([x, y, w, h], cell.content)
+          x += w
+        }
+        y += h
+      }
+    }
+
+    function drawCells() {
+      drawNormalCells()
+      if (sheetFixedRows.length > 0) drawFixedRowsCells()
     }
 
     if (!ctx) return
