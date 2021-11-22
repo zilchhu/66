@@ -1,5 +1,5 @@
 <script>
-  import Table from "./common/table/Table3.svelte";
+  import Table from "./common/table/Table4.svelte";
 
 </script>
 

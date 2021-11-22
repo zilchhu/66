@@ -58,7 +58,7 @@
   }
 
   // sheet part
-  $: sheetRows = rows.map(row => ({ ...row, height: row.height ?? sheetDefaultRowHeight }))
+  $: sheetRows = rows.map((row, i) => ({ ...row, height: row.height ?? sheetDefaultRowHeight, index: i }))
   $: sheetHeight = sum(sheetRows.map(row => row.height))
   $: sheetFixedRows = sheetRows.filter(row => row.fixed)
   $: sheetFixedHeight = sum(sheetFixedRows.map(row => row.height))
@@ -73,20 +73,7 @@
   $: sheetFixedCols = sheetCols.filter(col => col.fixed)
   $: sheetFixedWidth = sum(sheetFixedCols.map(col => col.width))
 
-  $: sheetMerges = merges.map(it => {
-    let width = sum(range(it[1], it[3]).map(i => sheetCols[i].width))
-    let height = sum(range(it[0], it[2]).map(i => sheetRows[i].height))
-    let cell = sheetRows[it[0]].cells[it[1]]
-
-    return {
-      range: it,
-      width,
-      height,
-      cell,
-    }
-  })
-
-  $: console.log(sheetMerges)
+  $: [merges, rows] && setSheetMergedRows()
 
   // canvas part
   $: canvasHeight = containerHeight * 2
@@ -191,6 +178,29 @@
     sheetEndColIdx = c
   }
 
+  function setSheetMergedRows() {
+    let _rows = [...rows]
+
+    for (let m of merges) {
+      let [row1, col1, row2, col2] = m
+
+      for (let i = row1; i <= row2; i++) {
+        for (let j = col1; j <= col2; j++) {
+          if (i == row1 && j == col1) {
+            _rows[i].cells[j].rowspan = row2 - row1 + 1
+            _rows[i].cells[j].colspan = col2 - col1 + 1
+          } else {
+            _rows[i].cells[j].rowspan = 0
+            _rows[i].cells[j].colspan = 0
+          }
+          console.log(i, j, _rows[i].cells[j])
+        }
+      }
+    }
+
+    rows = _rows
+  }
+
   function setCanvasWidth() {
     canvasElem.width = canvasWidth
   }
@@ -205,16 +215,19 @@
         cells: Array.from(Array(colNum).keys()).map(j => {
           return {
             type: "text",
-            content: j == 2 ? `行r${i}-列c${j}` : `Row${i}-Col${j}`,
-            bgColor: i == 2 && (j == 2 || j == 3) ? "yellow" : null,
+            content: false ? `行r${i}-列c${j}` : `Row${i}-Col${j}`,
+            bgColor: (i == 2 && j == 2) || i == 8  ? Color.blue100 : null,
           }
         }),
         fixed: i == 0 ? true : false,
       }
     })
-
     // [[row1, col1, row2, col2]]
-    merges = [[2, 2, 2, 3]]
+    merges = [
+      [0, 2, 0, 3],
+      [2, 0, 3, 0],
+      [2, 2, 3, 3],
+    ]
   }
 
   mockRows()
@@ -279,6 +292,15 @@
     document.body.removeEventListener("mousemove", onScrollHByDrag)
   }
 
+  /*
+    cell j i colspan=1 rowspan=1
+         x y w         h
+    x: -> sx + cols[sj..j].w
+    y: -> sy + rows[si..i].h
+    w: -> cols[j..j+colspan].w
+    h: -> rows[i..i+rowspan].h
+  */
+
   function draw() {
     function clipRect([x, y, w, h]) {
       ctx.save()
@@ -338,25 +360,56 @@
         let h = row.height
         let x = -sheetStartColOffsetDis
         // skip fxed row
-        if (row.fixed) {
-          y += h
-          continue
-        }
+        // if (row.fixed) {
+        //   y += h
+        //   continue
+        // }
         for (let j = sheetStartColIdx; j <= sheetEndColIdx; j++) {
           let cell = row.cells[j]
           let col = sheetCols[j]
           let w = col.width
           // skip fxed col
-          if (col.fixed) {
-            x += w
-            continue
-          }
+          // if (col.fixed) {
+          //   x += w
+          //   continue
+          // }
 
-          if (cell.bgColor) drawCellBg([x, y, w, h], cell.bgColor)
+          // if (cell.bgColor) drawCellBg([x, y, w, h], cell.bgColor)
           drawTextCell([x, y, w, h], cell.content)
-          drawCellBorders([x, y, w, h], [i, j, sheetEndRowIdx, sheetEndColIdx])
+          // drawCellBorders([x, y, w, h], [i, j, sheetEndRowIdx, sheetEndColIdx])
 
           x += w
+        }
+        y += h
+      }
+    }
+
+    function drawNormalCells2() {
+      let sx = -sheetStartColOffsetDis,
+        sy = -sheetStartRowOffsetDis,
+        sj = sheetStartColIdx,
+        si = sheetStartRowIdx,
+        ej = sheetEndColIdx,
+        ei = sheetEndRowIdx
+
+      let y = sy
+      for (let i = si; i <= ei; i++) {
+        let h = sheetRows[i].height
+        let x = sx
+        for (let j = sj; j <= ej; j++) {
+          let cell = sheetRows[i].cells[j]
+          let w = sheetCols[j].width
+
+          if (cell.colspan > 1) w = sum(range(j, j + cell.colspan - 1).map(i => sheetCols[i].width))
+          if (cell.rowspan > 1) h = sum(range(i, i + cell.rowspan - 1).map(i => sheetRows[i].height))
+          if (cell.colspan != 0 && cell.rowspan != 0) {
+            if(cell.bgColor) drawCellBg([x, y, w, h], cell.bgColor)
+            drawTextCell([x, y, w, h], cell.content)
+            drawCellBorders([x, y, w, h], [i, j, sheetEndRowIdx, sheetEndColIdx])
+          }
+
+          x += sheetCols[j].width
+          h = sheetRows[i].height
         }
         y += h
       }
@@ -365,17 +418,30 @@
     function drawFixedRowsCells() {
       ctx.clearRect(0, 0, canvasWidth, sheetFixedHeight)
 
-      let y = 0
+      let sx = -sheetStartColOffsetDis,
+        sy = 0,
+        sj = sheetStartColIdx,
+        ej = sheetEndColIdx
+
+      let y = sy
       for (let [i, row] of sheetFixedRows.entries()) {
         let h = row.height
-        let x = -sheetStartColOffsetDis
-        for (let j = sheetStartColIdx; j <= sheetEndColIdx; j++) {
+        let x = sx
+
+        for (let j = sj; j <= ej; j++) {
           let cell = row.cells[j]
-          let col = sheetCols[j]
-          let w = col.width
-          drawTextCell([x, y, w, h], cell.content)
-          drawCellBorders([x, y, w, h], [i, j, sheetFixedRows.length - 1, sheetEndColIdx])
-          x += w
+          let w = sheetCols[j].width
+
+          if (cell.colspan > 1) w = sum(range(j, j + cell.colspan - 1).map(i => sheetCols[i].width))
+          if (cell.rowspan > 1) h = sum(range(row.index, row.index + cell.rowspan - 1).map(i => sheetRows[i].height))
+          if (cell.colspan != 0 && cell.rowspan != 0) {
+            if(cell.bgColor) drawCellBg([x, y, w, h], cell.bgColor)
+            drawTextCell([x, y, w, h], cell.content)
+            drawCellBorders([x, y, w, h], [i, j, sheetFixedRows.length - 1, ej])
+          }
+
+          x += sheetCols[j].width
+          h = row.height
         }
         y += h
       }
@@ -384,38 +450,30 @@
     function drawFixedColsCells() {
       ctx.clearRect(0, 0, sheetFixedWidth, canvasHeight)
 
-      let y = -sheetStartRowOffsetDis
-      for (let i = sheetStartRowIdx; i <= sheetEndRowIdx; i++) {
-        let row = sheetRows[i]
-        let h = row.height
-        let x = 0
+      let sx = 0,
+        sy = -sheetStartRowOffsetDis,
+        si = sheetStartRowIdx,
+        ei = sheetEndRowIdx
+
+      let y = sy
+      for (let i = si; i <= ei; i++) {
+        let h = sheetRows[i].height
+        let x = sx
 
         for (let [j, col] of sheetFixedCols.entries()) {
-          let cell = row.cells[col.index]
+          let cell = sheetRows[i].cells[col.index]
           let w = col.width
-          drawTextCell([x, y, w, h], cell.content)
-          drawCellBorders([x, y, w, h], [i, j, sheetEndRowIdx, sheetFixedCols.length - 1])
-          x += w
-        }
-        y += h
-      }
-    }
 
-    function drawRightFixedColsCells() {
-      ctx.clearRect(0, 0, sheetFixedWidth, canvasHeight)
+          if (cell.colspan > 1) w = sum(range(col.index, col.index + cell.colspan - 1).map(i => sheetCols[i].width))
+          if (cell.rowspan > 1) h = sum(range(i, i + cell.rowspan - 1).map(i => sheetRows[i].height))
+          if (cell.colspan != 0 && cell.rowspan != 0) {
+            if(cell.bgColor) drawCellBg([x, y, w, h], cell.bgColor)
+            drawTextCell([x, y, w, h], cell.content)
+            drawCellBorders([x, y, w, h], [i, j, ei, sheetFixedCols.length - 1])
+          }
 
-      let y = -sheetStartRowOffsetDis
-      for (let i = sheetStartRowIdx; i <= sheetEndRowIdx; i++) {
-        let row = sheetRows[i]
-        let h = row.height
-        let x = 0
-
-        for (let [j, col] of sheetFixedCols.entries()) {
-          let cell = row.cells[col.index]
-          let w = col.width
-          drawTextCell([x, y, w, h], cell.content)
-          drawCellBorders([x, y, w, h], [i, j, sheetEndRowIdx, sheetFixedCols.length - 1])
-          x += w
+          x += col.width
+          h = sheetRows[i].height
         }
         y += h
       }
@@ -440,12 +498,30 @@
       }
     }
 
+    function drawMergedCells() {
+      for (let merge of sheetMerges) {
+      }
+    }
+
     function drawCells() {
-      drawNormalCells()
+      drawNormalCells2()
       if (sheetFixedRows.length > 0) drawFixedRowsCells()
       if (sheetFixedCols.length > 0) drawFixedColsCells()
       if (sheetFixedRows.length > 0 && sheetFixedCols.length > 0) drawBothFixedCells()
     }
+
+    /*
+      row { height, cells }
+      col { width }
+      cell { content }
+      merges { range }  
+        1 2 3 4 5 
+      1   
+      2   - -
+      3   - -
+      4
+      5
+    */
 
     if (!ctx) return
 
